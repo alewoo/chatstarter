@@ -1,5 +1,16 @@
 import { v } from "convex/values";
-import { internalMutation } from "../_generated/server";
+import {
+  internalMutation,
+  MutationCtx,
+  QueryCtx,
+  query,
+} from "../_generated/server";
+
+export const get = query({
+  handler: async (ctx) => {
+    return await getCurrentUser(ctx);
+  },
+});
 
 // call it whenever a user is created OR updated
 export const upsert = internalMutation({
@@ -9,11 +20,7 @@ export const upsert = internalMutation({
     clerkId: v.string(),
   },
   handler: async (ctx, args) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
-      .unique();
-
+    const user = await getUserByClerkId(ctx, args.clerkId);
     if (user) {
       await ctx.db.patch(user._id, {
         username: args.username,
@@ -32,13 +39,27 @@ export const upsert = internalMutation({
 export const remove = internalMutation({
   args: { clerkId: v.string() },
   handler: async (ctx, { clerkId }) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", clerkId))
-      .unique();
-
+    const user = await getUserByClerkId(ctx, clerkId);
     if (user) {
       await ctx.db.delete(user._id);
     }
   },
 });
+
+const getCurrentUser = async (ctx: QueryCtx | MutationCtx) => {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) {
+    return null;
+  }
+  return await getUserByClerkId(ctx, identity.subject);
+};
+
+const getUserByClerkId = async (
+  ctx: QueryCtx | MutationCtx,
+  clerkId: string
+) => {
+  return await ctx.db
+    .query("users")
+    .withIndex("by_clerk_id", (q) => q.eq("clerkId", clerkId))
+    .unique();
+};
